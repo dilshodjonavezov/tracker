@@ -1,7 +1,7 @@
+import 'package:alarm/tracker_screen.dart';
 import 'package:alarm/user.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'tracker_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

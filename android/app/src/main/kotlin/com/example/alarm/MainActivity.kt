@@ -4,6 +4,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.content.Intent
+import io.flutter.plugins.GeneratedPluginRegistrant // Добавляем для регистрации плагинов
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -13,6 +14,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        GeneratedPluginRegistrant.registerWith(flutterEngine) // Регистрируем плагины
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         channel?.setMethodCallHandler { call, result ->
             if (call.method == "startAlarmService") {
@@ -26,5 +28,10 @@ class MainActivity : FlutterActivity() {
         // Автоматический запуск сервиса
         val intent = Intent(this, AlarmService::class.java)
         startForegroundService(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        channel = null // Очищаем канал при уничтожении активности
     }
 }

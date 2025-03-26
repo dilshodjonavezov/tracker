@@ -21,7 +21,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _locationService.logStream.listen((log) {
       setState(() {
         _logs.add(log);
-        if (_logs.length > 20) _logs.removeAt(0); // Ограничиваем количество логов
+        if (_logs.length > 20) _logs.removeAt(0);
       });
     });
   }
