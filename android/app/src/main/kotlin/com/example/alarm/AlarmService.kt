@@ -24,6 +24,21 @@ class AlarmService : Service() {
     private lateinit var locationManager: LocationManager
     private lateinit var timer: Timer
     private lateinit var handler: Handler
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            Log.d("AlarmService", "onLocationChanged: Received location: lat=${location.latitude}, lon=${location.longitude}")
+            sendLocationToFlutter(location.latitude, location.longitude)
+        }
+        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {
+            Log.d("AlarmService", "onStatusChanged: provider=$provider, status=$status")
+        }
+        override fun onProviderEnabled(provider: String) {
+            Log.d("AlarmService", "onProviderEnabled: provider=$provider")
+        }
+        override fun onProviderDisabled(provider: String) {
+            Log.d("AlarmService", "onProviderDisabled: provider=$provider")
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -34,41 +49,18 @@ class AlarmService : Service() {
         timer = Timer()
         handler = Handler(Looper.getMainLooper())
         Log.d("AlarmService", "onCreate: Initialization complete")
+        startLocationUpdates()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("AlarmService", "onStartCommand: Service started with flags=$flags, startId=$startId")
-        // Отправляем накопленные данные, если канал доступен
         sendPendingLocations()
         timer.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
                 handler.post {
-                    Log.d("AlarmService", "TimerTask: Attempting to get location")
-                    try {
-                        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                            Log.e("AlarmService", "TimerTask: GPS is disabled")
-                            return@post
-                        }
-                        Log.d("AlarmService", "TimerTask: Requesting location update")
-                        locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, object : LocationListener {
-                            override fun onLocationChanged(location: Location) {
-                                Log.d("AlarmService", "onLocationChanged: Received location: lat=${location.latitude}, lon=${location.longitude}")
-                                sendLocationToFlutter(location.latitude, location.longitude)
-                            }
-                            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {
-                                Log.d("AlarmService", "onStatusChanged: provider=$provider, status=$status")
-                            }
-                            override fun onProviderEnabled(provider: String) {
-                                Log.d("AlarmService", "onProviderEnabled: provider=$provider")
-                            }
-                            override fun onProviderDisabled(provider: String) {
-                                Log.d("AlarmService", "onProviderDisabled: provider=$provider")
-                            }
-                        }, null)
-                    } catch (e: SecurityException) {
-                        Log.e("AlarmService", "TimerTask: Permission error: $e")
-                    } catch (e: Exception) {
-                        Log.e("AlarmService", "TimerTask: Unexpected error: $e")
+                    Log.d("AlarmService", "TimerTask: Checking location updates")
+                    if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                        Log.e("AlarmService", "TimerTask: GPS is disabled")
                     }
                 }
             }
@@ -81,6 +73,7 @@ class AlarmService : Service() {
         super.onDestroy()
         Log.d("AlarmService", "onDestroy: Service destroyed")
         timer.cancel()
+        locationManager.removeUpdates(locationListener)
         stopForeground(true)
     }
 
@@ -111,6 +104,27 @@ class AlarmService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+
+    private fun startLocationUpdates() {
+        try {
+            if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                Log.e("AlarmService", "startLocationUpdates: GPS is disabled")
+                return
+            }
+            Log.d("AlarmService", "startLocationUpdates: Requesting location updates")
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                10000L, // Минимальное время между обновлениями (10 секунд)
+                0f,     // Минимальное расстояние между обновлениями (0 метров)
+                locationListener,
+                Looper.getMainLooper()
+            )
+        } catch (e: SecurityException) {
+            Log.e("AlarmService", "startLocationUpdates: Permission error: $e")
+        } catch (e: Exception) {
+            Log.e("AlarmService", "startLocationUpdates: Unexpected error: $e")
+        }
     }
 
     private fun sendLocationToFlutter(latitude: Double, longitude: Double) {

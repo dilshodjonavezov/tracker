@@ -51,15 +51,11 @@ class LocationService {
       }
     }
 
+    // Разрешения уже запрошены в MainActivity.kt, просто проверяем
     PermissionStatus permissionGranted = await _location.hasPermission();
     if (permissionGranted == PermissionStatus.denied) {
-      print('LocationService: Permission denied, requesting permission');
-      _logController.add('Запрос разрешения на геолокацию');
-      permissionGranted = await _location.requestPermission();
-      if (permissionGranted != PermissionStatus.granted) {
-        print('LocationService: Permission not granted');
-        throw Exception('Location permissions are denied');
-      }
+      print('LocationService: Permission denied');
+      throw Exception('Location permissions are denied');
     }
 
     final locationData = await _location.getLocation();
@@ -183,7 +179,6 @@ class LocationService {
       _logController.add('Ответ сервера: status=${response.statusCode}, body=${response.body}');
 
       if (response.statusCode != 200) {
-        print('LocationService: Failed to send location: ${response.statusCode} - ${response.body}');
         throw Exception('Failed to send location: ${response.statusCode} - ${response.body}');
       }
       print('LocationService: Location sent successfully ($source)');
@@ -223,6 +218,7 @@ class LocationService {
 
   void dispose() {
     print('LocationService: dispose called');
+    _timer?.cancel();
     _logController.close();
   }
 }

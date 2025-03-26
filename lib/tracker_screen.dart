@@ -59,8 +59,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E21),
       appBar: AppBar(
-        title: const Text('Location Tracker'),
+        backgroundColor: const Color(0xFF0A0E21),
+        elevation: 0,
+        title: const Text(
+          'Location Tracker',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            fontFamily: 'Montserrat',
+          ),
+        ),
       ),
       body: Column(
         children: [
@@ -72,28 +83,105 @@ class _TrackerScreenState extends State<TrackerScreen> {
                   'Приложение автоматически отправляет координаты каждые 10 секунд\n'
                   'или нажмите кнопку для немедленной отправки',
                   textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    fontFamily: 'Montserrat',
+                  ),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(
                   onPressed: _sendLocation,
-                  child: const Text('Отправить геолокацию сейчас'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEB1555),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    elevation: 8,
+                    shadowColor: const Color(0xFFEB1555).withOpacity(0.5),
+                  ),
+                  child: const Text(
+                    'Отправить геолокацию сейчас',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      fontFamily: 'Montserrat',
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(
                   onPressed: _isTracking ? _stopTracking : _startTracking,
-                  child: Text(_isTracking ? 'Остановить отслеживание' : 'Возобновить отслеживание'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isTracking ? Colors.grey[800] : const Color(0xFF1D2671),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 15,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    elevation: 8,
+                    shadowColor: Colors.black45,
+                  ),
+                  child: Text(
+                    _isTracking ? 'Остановить отслеживание' : 'Возобновить отслеживание',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      fontFamily: 'Montserrat',
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 20),
-                Text(_status),
+                Text(
+                  _status,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontFamily: 'Montserrat',
+                  ),
+                ),
               ],
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              itemCount: _logs.length,
-              itemBuilder: (context, index) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
-                child: Text(_logs[index], style: const TextStyle(fontSize: 12)),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1D2671), Color(0xFF0A0E21)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              margin: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: ListView.builder(
+                itemCount: _logs.length,
+                itemBuilder: (context, index) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+                  child: Text(
+                    _logs[index],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70,
+                      fontFamily: 'Montserrat',
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
