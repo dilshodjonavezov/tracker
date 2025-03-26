@@ -1,7 +1,9 @@
-import 'package:alarm/tracker_screen.dart';
+import 'package:alarm/thank_you_screen.dart';
 import 'package:alarm/user.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,7 +29,7 @@ class MyApp extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          return snapshot.data == true ? const UserIdScreen() : const TrackerScreen();
+          return snapshot.data == true ? const UserIdScreen() : const ThankYouScreen();
         },
       ),
     );

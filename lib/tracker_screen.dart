@@ -1,5 +1,6 @@
 import 'package:alarm/log_manager.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class TrackerScreen extends StatefulWidget {
   const TrackerScreen({super.key});
@@ -13,16 +14,30 @@ class _TrackerScreenState extends State<TrackerScreen> {
   String _status = 'Ожидание...';
   bool _isTracking = false;
   final List<String> _logs = [];
+  String _settingsInfo = '';
 
   @override
   void initState() {
     super.initState();
+    _loadSettings();
     _startTracking();
     _locationService.logStream.listen((log) {
       setState(() {
         _logs.add(log);
         if (_logs.length > 20) _logs.removeAt(0);
       });
+    });
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final gps = prefs.getBool('gps') ?? false;
+    final interval = prefs.getInt('interval') ?? 600;
+    final from = prefs.getString('from') ?? '0001-01-01T08:00:00';
+    final to = prefs.getString('to') ?? '0001-01-01T18:00:00';
+    setState(() {
+      _settingsInfo = 'Настройки:\nВременное окно: $from - $to\n'
+          'Интервал: $interval сек\nОтправка: ${gps ? "Включена" : "Отключена"}';
     });
   }
 
@@ -79,8 +94,18 @@ class _TrackerScreenState extends State<TrackerScreen> {
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
+                Text(
+                  _settingsInfo,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    fontFamily: 'Montserrat',
+                  ),
+                ),
+                const SizedBox(height: 10),
                 const Text(
-                  'Приложение автоматически отправляет координаты каждые 10 секунд\n'
+                  'Приложение автоматически отправляет координаты\n'
                   'или нажмите кнопку для немедленной отправки',
                   textAlign: TextAlign.center,
                   style: TextStyle(

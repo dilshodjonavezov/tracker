@@ -51,7 +51,6 @@ class LocationService {
       }
     }
 
-    // Разрешения уже запрошены в MainActivity.kt, просто проверяем
     PermissionStatus permissionGranted = await _location.hasPermission();
     if (permissionGranted == PermissionStatus.denied) {
       print('LocationService: Permission denied');
@@ -73,6 +72,36 @@ class LocationService {
     return isConnected;
   }
 
+  Future<bool> _canSendLocation() async {
+    final prefs = await SharedPreferences.getInstance();
+    final gps = prefs.getBool('gps') ?? false;
+    final from = prefs.getString('from') ?? '0001-01-01T08:00:00';
+    final to = prefs.getString('to') ?? '0001-01-01T18:00:00';
+
+    if (!gps) {
+      print('LocationService: Sending disabled by gps flag');
+      _logController.add('Отправка отключена (gps = false)');
+      return false;
+    }
+
+    final now = DateTime.now();
+    final fromTime = DateTime.parse(from);
+    final toTime = DateTime.parse(to);
+
+    // Извлекаем только время (часы и минуты) для сравнения
+    final currentTimeInMinutes = now.hour * 60 + now.minute;
+    final fromTimeInMinutes = fromTime.hour * 60 + fromTime.minute;
+    final toTimeInMinutes = toTime.hour * 60 + toTime.minute;
+
+    if (currentTimeInMinutes < fromTimeInMinutes || currentTimeInMinutes >= toTimeInMinutes) {
+      print('LocationService: Outside allowed time window ($from-$to), current time: ${now.hour}:${now.minute}');
+      _logController.add('Вне временного окна ($from-$to), текущее время: ${now.hour}:${now.minute}');
+      return false;
+    }
+
+    return true;
+  }
+
   Future<void> _savePendingData(Map<String, dynamic> data) async {
     print('LocationService: _savePendingData called with data=$data');
     final prefs = await SharedPreferences.getInstance();
@@ -87,6 +116,11 @@ class LocationService {
     print('LocationService: _checkAndSendPendingData called');
     if (!await _isInternetAvailable()) {
       print('LocationService: No internet, skipping pending data send');
+      return;
+    }
+
+    if (!await _canSendLocation()) {
+      print('LocationService: Cannot send pending data due to restrictions');
       return;
     }
 
@@ -136,6 +170,12 @@ class LocationService {
   Future<void> sendLocationToServer(double latitude, double longitude, {String source = 'Ручная'}) async {
     print('LocationService: sendLocationToServer called with lat=$latitude, lon=$longitude, source=$source');
     _logController.add('$source отправка координат на сервер');
+
+    if (!await _canSendLocation()) {
+      print('LocationService: Cannot send location due to restrictions');
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getString('user_id') ?? '';
     print('LocationService: user_id from SharedPreferences: $userId');
@@ -195,17 +235,21 @@ class LocationService {
   void startLocationTracking() {
     print('LocationService: startLocationTracking called');
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 10), (timer) async {
-      print('LocationService: Timer tick');
-      try {
-        // Здесь можно добавить дополнительную логику, если нужно
-      } catch (e) {
-        print('LocationService: Error in periodic tracking: $e');
-        _logController.add('Ошибка в периодической отправке: $e');
-      }
+    SharedPreferences.getInstance().then((prefs) {
+      final interval = prefs.getInt('interval') ?? 600; // Интервал в секундах
+      _timer = Timer.periodic(Duration(seconds: interval), (timer) async {
+        print('LocationService: Timer tick');
+        try {
+          final locationData = await getCurrentLocation();
+          await sendLocationToServer(locationData.latitude!, locationData.longitude!, source: 'Автоматическая');
+        } catch (e) {
+          print('LocationService: Error in periodic tracking: $e');
+          _logController.add('Ошибка в периодической отправке: $e');
+        }
+      });
+      print('LocationService: Periodic tracking started with interval $interval seconds');
+      _logController.add('Запущена периодическая отправка каждые $interval секунд');
     });
-    print('LocationService: Periodic tracking started');
-    _logController.add('Запущена периодическая отправка каждые 10 секунд');
   }
 
   void stopLocationTracking() {

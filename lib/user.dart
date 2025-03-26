@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
-import 'tracker_screen.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'thank_you_screen.dart'; // Импортируем новую страницу
 
 class UserIdScreen extends StatefulWidget {
   const UserIdScreen({super.key});
@@ -15,6 +17,8 @@ class _UserIdScreenState extends State<UserIdScreen> {
   final _controller = TextEditingController();
   static const platform = MethodChannel('alarm_service');
   String _errorMessage = '';
+  static const String _username = 'Админ';
+  static const String _password = '1';
 
   Future<void> _requestPermissions() async {
     await [
@@ -23,19 +27,61 @@ class _UserIdScreenState extends State<UserIdScreen> {
     ].request();
   }
 
+  Future<void> _fetchSettings(String userId) async {
+    try {
+      final String basicAuth = 'Basic ${base64Encode(utf8.encode('$_username:$_password'))}';
+      final request = http.Request(
+        'GET',
+        Uri.parse('http://192.168.1.10:8080/MR_v1/hs/data/auth'),
+      );
+      request.headers['Content-Type'] = 'application/json';
+      request.headers['Authorization'] = basicAuth;
+      request.body = jsonEncode({'user_id': userId});
+
+      final response = await request.send().timeout(const Duration(seconds: 10));
+      final responseBody = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(responseBody);
+        if (data['result'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('gps', data['gps'] ?? false);
+          await prefs.setInt('interval', data['interval'] ?? 600);
+          await prefs.setString('from', data['from'] ?? '0001-01-01T08:00:00');
+          await prefs.setString('to', data['to'] ?? '0001-01-01T18:00:00');
+        } else {
+          throw Exception('Server returned result: false');
+        }
+      } else {
+        throw Exception('Failed to fetch settings: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Ошибка при получении настроек: $e';
+      });
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('gps', false);
+      await prefs.setInt('interval', 600);
+      await prefs.setString('from', '0001-01-01T08:00:00');
+      await prefs.setString('to', '0001-01-01T18:00:00');
+    }
+  }
+
   Future<void> _saveUserIdAndStartService() async {
     if (_controller.text.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_id', _controller.text);
+      final userId = _controller.text;
+      await prefs.setString('user_id', userId);
+
+      await _fetchSettings(userId);
 
       try {
         final result = await platform.invokeMethod('startAlarmService');
         if (result == true) {
-          print("UserIdScreen: AlarmService started successfully");
           if (mounted) {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (_) => const TrackerScreen()),
+              MaterialPageRoute(builder: (_) => const ThankYouScreen()),
             );
           }
         } else {
@@ -44,7 +90,6 @@ class _UserIdScreenState extends State<UserIdScreen> {
           });
         }
       } on PlatformException catch (e) {
-        print("UserIdScreen: Failed to start service: $e");
         setState(() {
           _errorMessage = "Ошибка при запуске сервиса: ${e.message}";
         });
@@ -70,7 +115,7 @@ class _UserIdScreenState extends State<UserIdScreen> {
         backgroundColor: const Color(0xFF0A0E21),
         elevation: 0,
         title: const Text(
-          'Setup',
+          'Настройка',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,

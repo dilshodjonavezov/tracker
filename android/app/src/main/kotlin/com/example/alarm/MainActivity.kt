@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import android.content.Context // Добавляем импорт
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -23,11 +24,9 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         Log.d("MainActivity", "onCreate: MainActivity created")
 
-        // Регистрируем плагин
         val plugin = AlarmServicePlugin()
         flutterEngine?.plugins?.add(plugin)
 
-        // Запрашиваем разрешения при запуске
         requestLocationPermissions()
     }
 
@@ -87,7 +86,7 @@ class MainActivity : FlutterActivity() {
 }
 
 class AlarmServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
-    private var context: android.content.Context? = null
+    private var context: Context? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         MainActivity.channel = MethodChannel(binding.binaryMessenger, "alarm_service")
@@ -108,6 +107,20 @@ class AlarmServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "startAlarmService" -> {
                 try {
+                    // Сохраняем user_id в SharedPreferences на стороне Android
+                    val sharedPreferences = context?.getSharedPreferences("AlarmServicePrefs", Context.MODE_PRIVATE)
+                    val editor = sharedPreferences?.edit()
+                    val userId = sharedPreferences?.getString("user_id", null)
+                    if (userId == null) {
+                        val flutterPrefs = context?.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                        val flutterUserId = flutterPrefs?.getString("flutter.user_id", null)
+                        if (flutterUserId != null) {
+                            editor?.putString("user_id", flutterUserId)
+                            editor?.apply()
+                            Log.d("AlarmServicePlugin", "onMethodCall: user_id saved: $flutterUserId")
+                        }
+                    }
+
                     val intent = Intent(context, AlarmService::class.java)
                     context?.startForegroundService(intent)
                     Log.d("AlarmServicePlugin", "onMethodCall: AlarmService started")

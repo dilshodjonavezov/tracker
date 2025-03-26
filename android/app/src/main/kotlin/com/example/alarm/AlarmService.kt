@@ -17,6 +17,9 @@ import android.os.Looper
 import android.util.Log
 import java.util.Timer
 import java.util.TimerTask
+import java.net.HttpURLConnection
+import java.net.URL
+import android.util.Base64
 
 class AlarmService : Service() {
     private val CHANNEL_ID = "alarm_service_channel"
@@ -24,6 +27,7 @@ class AlarmService : Service() {
     private lateinit var locationManager: LocationManager
     private lateinit var timer: Timer
     private lateinit var handler: Handler
+    private var interval: Long = 600000 // По умолчанию 10 минут (600 секунд * 1000)
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             Log.d("AlarmService", "onLocationChanged: Received location: lat=${location.latitude}, lon=${location.longitude}")
@@ -49,6 +53,7 @@ class AlarmService : Service() {
         timer = Timer()
         handler = Handler(Looper.getMainLooper())
         Log.d("AlarmService", "onCreate: Initialization complete")
+        fetchSettings()
         startLocationUpdates()
     }
 
@@ -64,8 +69,8 @@ class AlarmService : Service() {
                     }
                 }
             }
-        }, 0, 10000) // Каждые 10 секунд
-        Log.d("AlarmService", "onStartCommand: Timer scheduled")
+        }, 0, interval)
+        Log.d("AlarmService", "onStartCommand: Timer scheduled with interval $interval ms")
         return START_STICKY
     }
 
@@ -106,17 +111,95 @@ class AlarmService : Service() {
             .build()
     }
 
+    private fun fetchSettings() {
+        val sharedPreferences = getSharedPreferences("AlarmServicePrefs", Context.MODE_PRIVATE)
+        val userId = sharedPreferences.getString("user_id", null)
+        if (userId == null) {
+            Log.e("AlarmService", "fetchSettings: user_id not found in SharedPreferences")
+            return
+        }
+
+        Thread {
+            try {
+                val url = URL("http://192.168.1.10:8080/MR_v1/hs/data/auth")
+                val connection = url.openConnection() as HttpURLConnection
+                val auth = Base64.encodeToString("Админ:1".toByteArray(), Base64.NO_WRAP)
+                connection.setRequestProperty("Authorization", "Basic $auth")
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.requestMethod = "GET"
+                connection.doOutput = true // Разрешаем отправку тела в GET-запросе
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+
+                val body = "{\"user_id\":\"$userId\"}"
+                connection.outputStream.write(body.toByteArray(Charsets.UTF_8))
+
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = org.json.JSONObject(response)
+                    if (json.getBoolean("result")) {
+                        val editor = sharedPreferences.edit()
+                        editor.putBoolean("gps", json.optBoolean("gps", false))
+                        val intervalSeconds = json.optLong("interval", 600)
+                        editor.putLong("interval", intervalSeconds * 1000) // Конвертируем секунды в миллисекунды
+                        interval = intervalSeconds * 1000
+                        editor.putString("from", json.optString("from", "0001-01-01T08:00:00"))
+                        editor.putString("to", json.optString("to", "0001-01-01T18:00:00"))
+                        editor.apply()
+                        Log.d("AlarmService", "fetchSettings: Settings updated: $response")
+                    } else {
+                        Log.e("AlarmService", "fetchSettings: Server returned result: false")
+                    }
+                } else {
+                    Log.e("AlarmService", "fetchSettings: Failed with status: ${connection.responseCode}")
+                }
+            } catch (e: Exception) {
+                Log.e("AlarmService", "fetchSettings: Error: $e")
+            }
+        }.start()
+    }
+
     private fun startLocationUpdates() {
         try {
             if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 Log.e("AlarmService", "startLocationUpdates: GPS is disabled")
                 return
             }
+            val sharedPreferences = getSharedPreferences("AlarmServicePrefs", Context.MODE_PRIVATE)
+            val gps = sharedPreferences.getBoolean("gps", false)
+            if (!gps) {
+                Log.d("AlarmService", "startLocationUpdates: Location updates disabled by gps flag")
+                return
+            }
+
+            val from = sharedPreferences.getString("from", "0001-01-01T08:00:00") ?: "0001-01-01T08:00:00"
+            val to = sharedPreferences.getString("to", "0001-01-01T18:00:00") ?: "0001-01-01T18:00:00"
+
+            // Парсим время
+            val fromParts = from.split("T")[1].split(":")
+            val toParts = to.split("T")[1].split(":")
+            val fromHour = fromParts[0].toInt()
+            val fromMinute = fromParts[1].toInt()
+            val toHour = toParts[0].toInt()
+            val toMinute = toParts[1].toInt()
+
+            val calendar = java.util.Calendar.getInstance()
+            val currentHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+            val currentMinute = calendar.get(java.util.Calendar.MINUTE)
+            val currentTimeInMinutes = currentHour * 60 + currentMinute
+            val fromTimeInMinutes = fromHour * 60 + fromMinute
+            val toTimeInMinutes = toHour * 60 + toMinute
+
+            if (currentTimeInMinutes < fromTimeInMinutes || currentTimeInMinutes >= toTimeInMinutes) {
+                Log.d("AlarmService", "startLocationUpdates: Outside allowed time window ($from-$to)")
+                return
+            }
+
             Log.d("AlarmService", "startLocationUpdates: Requesting location updates")
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                10000L, // Минимальное время между обновлениями (10 секунд)
-                0f,     // Минимальное расстояние между обновлениями (0 метров)
+                interval,
+                0f,
                 locationListener,
                 Looper.getMainLooper()
             )
