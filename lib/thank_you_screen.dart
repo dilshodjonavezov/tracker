@@ -19,8 +19,8 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
   @override
   void initState() {
     super.initState();
-    _updateSettings(); // Обновляем настройки при входе
-    _locationService.startLocationTracking(); // Запускаем фоновую отправку
+    _updateSettings();
+    _locationService.startLocationTracking();
   }
 
   Future<void> _updateSettings() async {
@@ -50,7 +50,7 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
           }
         }
       } catch (e) {
-        // Если запрос не удался, оставляем текущие настройки
+        // Оставляем текущие настройки, если запрос не удался
       }
     }
   }

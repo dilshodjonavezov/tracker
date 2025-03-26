@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import android.content.Context // Добавляем импорт
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -86,7 +85,7 @@ class MainActivity : FlutterActivity() {
 }
 
 class AlarmServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
-    private var context: Context? = null
+    private var context: android.content.Context? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         MainActivity.channel = MethodChannel(binding.binaryMessenger, "alarm_service")
@@ -107,12 +106,11 @@ class AlarmServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         when (call.method) {
             "startAlarmService" -> {
                 try {
-                    // Сохраняем user_id в SharedPreferences на стороне Android
-                    val sharedPreferences = context?.getSharedPreferences("AlarmServicePrefs", Context.MODE_PRIVATE)
+                    val sharedPreferences = context?.getSharedPreferences("AlarmServicePrefs", android.content.Context.MODE_PRIVATE)
                     val editor = sharedPreferences?.edit()
                     val userId = sharedPreferences?.getString("user_id", null)
                     if (userId == null) {
-                        val flutterPrefs = context?.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                        val flutterPrefs = context?.getSharedPreferences("FlutterSharedPreferences", android.content.Context.MODE_PRIVATE)
                         val flutterUserId = flutterPrefs?.getString("flutter.user_id", null)
                         if (flutterUserId != null) {
                             editor?.putString("user_id", flutterUserId)

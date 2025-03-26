@@ -4,22 +4,23 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.Intent
-import android.os.Build
-import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import android.location.LocationManager
 import android.content.Context
+import android.content.Intent
 import android.location.Location
 import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Build
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
+import android.util.Base64
 import android.util.Log
-import java.util.Timer
-import java.util.TimerTask
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import java.net.HttpURLConnection
 import java.net.URL
-import android.util.Base64
+import java.util.Timer
+import java.util.TimerTask
 
 class AlarmService : Service() {
     private val CHANNEL_ID = "alarm_service_channel"
@@ -48,18 +49,36 @@ class AlarmService : Service() {
         super.onCreate()
         Log.d("AlarmService", "onCreate: Service created")
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         timer = Timer()
         handler = Handler(Looper.getMainLooper())
         Log.d("AlarmService", "onCreate: Initialization complete")
-        fetchSettings()
-        startLocationUpdates()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("AlarmService", "onStartCommand: Service started with flags=$flags, startId=$startId")
+
+        // Проверяем разрешения перед запуском
+        if (!checkLocationPermissions()) {
+            Log.e("AlarmService", "onStartCommand: Missing location permissions, stopping service")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        // Запускаем foreground-сервис
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Tracker")
+            .setContentText("Отслеживание местоположения активно")
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        startForeground(NOTIFICATION_ID, notification)
+
+        fetchSettings()
+        startLocationUpdates()
         sendPendingLocations()
+
         timer.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
                 handler.post {
@@ -70,6 +89,7 @@ class AlarmService : Service() {
                 }
             }
         }, 0, interval)
+
         Log.d("AlarmService", "onStartCommand: Timer scheduled with interval $interval ms")
         return START_STICKY
     }
@@ -87,6 +107,13 @@ class AlarmService : Service() {
         return null
     }
 
+    private fun checkLocationPermissions(): Boolean {
+        return (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                        ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED))
+    }
+
     private fun createNotificationChannel() {
         Log.d("AlarmService", "createNotificationChannel: Creating channel")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -99,16 +126,6 @@ class AlarmService : Service() {
             manager.createNotificationChannel(channel)
             Log.d("AlarmService", "createNotificationChannel: Channel created")
         }
-    }
-
-    private fun createNotification(): Notification {
-        Log.d("AlarmService", "createNotification: Building notification")
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Tracker")
-            .setContentText("Отслеживание местоположения активно")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
     }
 
     private fun fetchSettings() {
@@ -127,7 +144,7 @@ class AlarmService : Service() {
                 connection.setRequestProperty("Authorization", "Basic $auth")
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.requestMethod = "GET"
-                connection.doOutput = true // Разрешаем отправку тела в GET-запросе
+                connection.doOutput = true
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
 
@@ -141,7 +158,7 @@ class AlarmService : Service() {
                         val editor = sharedPreferences.edit()
                         editor.putBoolean("gps", json.optBoolean("gps", false))
                         val intervalSeconds = json.optLong("interval", 600)
-                        editor.putLong("interval", intervalSeconds * 1000) // Конвертируем секунды в миллисекунды
+                        editor.putLong("interval", intervalSeconds * 1000)
                         interval = intervalSeconds * 1000
                         editor.putString("from", json.optString("from", "0001-01-01T08:00:00"))
                         editor.putString("to", json.optString("to", "0001-01-01T18:00:00"))
@@ -175,7 +192,6 @@ class AlarmService : Service() {
             val from = sharedPreferences.getString("from", "0001-01-01T08:00:00") ?: "0001-01-01T08:00:00"
             val to = sharedPreferences.getString("to", "0001-01-01T18:00:00") ?: "0001-01-01T18:00:00"
 
-            // Парсим время
             val fromParts = from.split("T")[1].split(":")
             val toParts = to.split("T")[1].split(":")
             val fromHour = fromParts[0].toInt()
@@ -205,6 +221,7 @@ class AlarmService : Service() {
             )
         } catch (e: SecurityException) {
             Log.e("AlarmService", "startLocationUpdates: Permission error: $e")
+            stopSelf()
         } catch (e: Exception) {
             Log.e("AlarmService", "startLocationUpdates: Unexpected error: $e")
         }

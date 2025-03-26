@@ -1,10 +1,13 @@
+import 'dart:io';
+
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'thank_you_screen.dart'; // Импортируем новую страницу
+import 'thank_you_screen.dart';
 
 class UserIdScreen extends StatefulWidget {
   const UserIdScreen({super.key});
@@ -21,10 +24,41 @@ class _UserIdScreenState extends State<UserIdScreen> {
   static const String _password = '1';
 
   Future<void> _requestPermissions() async {
-    await [
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.location,
       Permission.notification,
+      if (Platform.isAndroid && await _isAndroid14OrHigher()) Permission.locationAlways, // Заменили accessBackgroundLocation на locationAlways
     ].request();
+
+    bool allGranted = statuses[Permission.location]!.isGranted &&
+        statuses[Permission.notification]!.isGranted;
+
+    if (Platform.isAndroid && await _isAndroid14OrHigher()) {
+      allGranted = allGranted && statuses[Permission.locationAlways]!.isGranted; // Заменили accessBackgroundLocation на locationAlways
+    }
+
+    if (!allGranted) {
+      setState(() {
+        _errorMessage = "Необходимо предоставить все разрешения для работы приложения";
+      });
+    }
+  }
+
+  Future<bool> _isAndroid14OrHigher() async {
+    if (Platform.isAndroid) {
+      var androidInfo = await DeviceInfoPlugin().androidInfo;
+      return androidInfo.version.sdkInt >= 34;
+    }
+    return false;
+  }
+
+  Future<void> _requestIgnoreBatteryOptimizations() async {
+    if (Platform.isAndroid) {
+      var status = await Permission.ignoreBatteryOptimizations.status;
+      if (!status.isGranted) {
+        await Permission.ignoreBatteryOptimizations.request();
+      }
+    }
   }
 
   Future<void> _fetchSettings(String userId) async {
@@ -105,6 +139,7 @@ class _UserIdScreenState extends State<UserIdScreen> {
   void initState() {
     super.initState();
     _requestPermissions();
+    _requestIgnoreBatteryOptimizations();
   }
 
   @override
