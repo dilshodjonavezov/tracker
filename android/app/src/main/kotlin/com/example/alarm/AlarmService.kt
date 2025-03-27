@@ -29,11 +29,11 @@ class AlarmService : Service() {
     private lateinit var timer: Timer
     private lateinit var handler: Handler
     private var interval: Long = 600000 // По умолчанию 10 минут (600 секунд * 1000)
-    private var isServiceRunning = false // Флаг для проверки состояния сервиса
+    private var isServiceRunning = false
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            Log.d("AlarmService", "onLocationChanged: Received location: lat=${location.latitude}, lon=${location.longitude}")
+            Log.d("AlarmService", "onLocationChanged: Received location: lat=${location.latitude}, lon=${location.longitude}, accuracy=${location.accuracy}")
             sendLocationToFlutter(location.latitude, location.longitude)
         }
         override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {
@@ -60,20 +60,17 @@ class AlarmService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("AlarmService", "onStartCommand: Service started with flags=$flags, startId=$startId")
 
-        // Если сервис уже работает, не перезапускаем его
         if (isServiceRunning) {
             Log.d("AlarmService", "onStartCommand: Service is already running")
             return START_STICKY
         }
 
-        // Проверяем разрешения перед запуском
         if (!checkLocationPermissions()) {
             Log.e("AlarmService", "onStartCommand: Missing location permissions, stopping service")
             stopSelf()
             return START_NOT_STICKY
         }
 
-        // Запускаем foreground-сервис
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Tracker")
             .setContentText("Отслеживание местоположения активно")
@@ -84,8 +81,11 @@ class AlarmService : Service() {
         startForeground(NOTIFICATION_ID, notification)
         isServiceRunning = true
 
+        Log.d("AlarmService", "onStartCommand: Starting fetchSettings")
         fetchSettings()
+        Log.d("AlarmService", "onStartCommand: Starting location updates")
         startLocationUpdates()
+        Log.d("AlarmService", "onStartCommand: Sending pending locations")
         sendPendingLocations()
 
         timer.scheduleAtFixedRate(object : TimerTask() {
@@ -118,10 +118,15 @@ class AlarmService : Service() {
     }
 
     private fun checkLocationPermissions(): Boolean {
-        return (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-                (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-                        ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED))
+        val hasFineLocation = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val hasCoarseLocation = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val hasBackgroundLocation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        Log.d("AlarmService", "checkLocationPermissions: FineLocation=$hasFineLocation, CoarseLocation=$hasCoarseLocation, BackgroundLocation=$hasBackgroundLocation")
+        return hasFineLocation && hasCoarseLocation && hasBackgroundLocation
     }
 
     private fun createNotificationChannel() {
@@ -145,40 +150,48 @@ class AlarmService : Service() {
             Log.e("AlarmService", "fetchSettings: user_id not found in SharedPreferences")
             return
         }
+        Log.d("AlarmService", "fetchSettings: user_id=$userId")
 
         Thread {
             try {
-                val url = URL("http://192.168.1.10:8080/MR_v1/hs/data/auth")
+                val url = URL("http://192.168.1.10:8080/MR_v1/hs/data/auth?user_id=$userId")
+                Log.d("AlarmService", "fetchSettings: Sending GET request to $url")
                 val connection = url.openConnection() as HttpURLConnection
                 val auth = Base64.encodeToString("Админ:1".toByteArray(), Base64.NO_WRAP)
                 connection.setRequestProperty("Authorization", "Basic $auth")
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.requestMethod = "GET"
-                connection.doOutput = true
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
 
-                val body = "{\"user_id\":\"$userId\"}"
-                connection.outputStream.write(body.toByteArray(Charsets.UTF_8))
+                Log.d("AlarmService", "fetchSettings: Connecting to server")
+                connection.connect()
 
-                if (connection.responseCode == 200) {
+                val responseCode = connection.responseCode
+                Log.d("AlarmService", "fetchSettings: Response code: $responseCode")
+
+                if (responseCode == 200) {
                     val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    Log.d("AlarmService", "fetchSettings: Response received: $response")
                     val json = org.json.JSONObject(response)
                     if (json.getBoolean("result")) {
                         val editor = sharedPreferences.edit()
-                        editor.putBoolean("gps", json.optBoolean("gps", false))
+                        val gps = json.optBoolean("gps", false)
                         val intervalSeconds = json.optLong("interval", 600)
+                        val from = json.optString("from", "0001-01-01T08:00:00")
+                        val to = json.optString("to", "0001-01-01T18:00:00")
+                        editor.putBoolean("gps", gps)
                         editor.putLong("interval", intervalSeconds * 1000)
                         interval = intervalSeconds * 1000
-                        editor.putString("from", json.optString("from", "0001-01-01T08:00:00"))
-                        editor.putString("to", json.optString("to", "0001-01-01T18:00:00"))
+                        editor.putString("from", from)
+                        editor.putString("to", to)
                         editor.apply()
-                        Log.d("AlarmService", "fetchSettings: Settings updated: $response")
+                        Log.d("AlarmService", "fetchSettings: Settings updated: gps=$gps, interval=$intervalSeconds, from=$from, to=$to")
                     } else {
                         Log.e("AlarmService", "fetchSettings: Server returned result: false")
                     }
                 } else {
-                    Log.e("AlarmService", "fetchSettings: Failed with status: ${connection.responseCode}")
+                    Log.e("AlarmService", "fetchSettings: Failed with status: $responseCode")
                 }
             } catch (e: Exception) {
                 Log.e("AlarmService", "fetchSettings: Error: $e")
@@ -194,6 +207,7 @@ class AlarmService : Service() {
             }
             val sharedPreferences = getSharedPreferences("AlarmServicePrefs", Context.MODE_PRIVATE)
             val gps = sharedPreferences.getBoolean("gps", false)
+            Log.d("AlarmService", "startLocationUpdates: gps flag=$gps")
             if (!gps) {
                 Log.d("AlarmService", "startLocationUpdates: Location updates disabled by gps flag")
                 return
@@ -201,6 +215,7 @@ class AlarmService : Service() {
 
             val from = sharedPreferences.getString("from", "0001-01-01T08:00:00") ?: "0001-01-01T08:00:00"
             val to = sharedPreferences.getString("to", "0001-01-01T18:00:00") ?: "0001-01-01T18:00:00"
+            Log.d("AlarmService", "startLocationUpdates: Time window: from=$from, to=$to")
 
             val fromParts = from.split("T")[1].split(":")
             val toParts = to.split("T")[1].split(":")
@@ -215,13 +230,14 @@ class AlarmService : Service() {
             val currentTimeInMinutes = currentHour * 60 + currentMinute
             val fromTimeInMinutes = fromHour * 60 + fromMinute
             val toTimeInMinutes = toHour * 60 + toMinute
+            Log.d("AlarmService", "startLocationUpdates: Current time=$currentTimeInMinutes minutes, Allowed window=$fromTimeInMinutes-$toTimeInMinutes minutes")
 
             if (currentTimeInMinutes < fromTimeInMinutes || currentTimeInMinutes >= toTimeInMinutes) {
                 Log.d("AlarmService", "startLocationUpdates: Outside allowed time window ($from-$to)")
                 return
             }
 
-            Log.d("AlarmService", "startLocationUpdates: Requesting location updates")
+            Log.d("AlarmService", "startLocationUpdates: Requesting location updates with interval=$interval ms")
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 interval,
@@ -245,7 +261,7 @@ class AlarmService : Service() {
             return
         }
         MainActivity.channel?.invokeMethod("updateLocation", mapOf("latitude" to latitude, "longitude" to longitude))
-        Log.d("AlarmService", "sendLocationToFlutter: Method invoked")
+        Log.d("AlarmService", "sendLocationToFlutter: Method invoked successfully")
     }
 
     private fun saveLocationLocally(latitude: Double, longitude: Double) {
@@ -276,7 +292,8 @@ class AlarmService : Service() {
                 val json = org.json.JSONObject(locationData)
                 val latitude = json.getDouble("latitude")
                 val longitude = json.getDouble("longitude")
-                Log.d("AlarmService", "sendPendingLocations: Sending pending location: lat=$latitude, lon=$longitude")
+                val timestamp = json.getLong("timestamp")
+                Log.d("AlarmService", "sendPendingLocations: Sending pending location: lat=$latitude, lon=$longitude, timestamp=$timestamp")
                 MainActivity.channel?.invokeMethod("updateLocation", mapOf("latitude" to latitude, "longitude" to longitude))
                 pendingLocations.remove(locationData)
                 sharedPreferences.edit().putStringSet("pending_locations", pendingLocations).apply()

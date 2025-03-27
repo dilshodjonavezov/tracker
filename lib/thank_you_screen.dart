@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'log_manager.dart';
+import 'tracker_screen.dart'; // Импортируем TrackerScreen
 
 class ThankYouScreen extends StatefulWidget {
   const ThankYouScreen({super.key});
@@ -21,12 +22,14 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
   @override
   void initState() {
     super.initState();
+    print('ThankYouScreen: initState called');
     _updateSettings();
-    _restartAlarmService(); // Перезапускаем сервис
+    _restartAlarmService();
     _locationService.startLocationTracking();
   }
 
   Future<void> _restartAlarmService() async {
+    print('ThankYouScreen: _restartAlarmService called');
     try {
       final result = await platform.invokeMethod('startAlarmService');
       if (result == true) {
@@ -40,45 +43,54 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
   }
 
   Future<void> _updateSettings() async {
+    print('ThankYouScreen: _updateSettings called');
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getString('user_id');
+    print('ThankYouScreen: _updateSettings: user_id=$userId');
     if (userId != null) {
       try {
         final String basicAuth = 'Basic ${base64Encode(utf8.encode('$_username:$_password'))}';
-        final request = http.Request(
-          'GET',
-          Uri.parse('http://192.168.1.10:8080/MR_v1/hs/data/auth'),
-        );
-        request.headers['Content-Type'] = 'application/json';
-        request.headers['Authorization'] = basicAuth;
-        request.body = jsonEncode({'user_id': userId});
+        print('ThankYouScreen: _updateSettings: Sending GET request to http://192.168.1.10:8080/MR_v1/hs/data/auth?user_id=$userId');
+        final response = await http.get(
+          Uri.parse('http://192.168.1.10:8080/MR_v1/hs/data/auth?user_id=$userId'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': basicAuth,
+          },
+        ).timeout(const Duration(seconds: 10));
 
-        final response = await request.send().timeout(const Duration(seconds: 10));
-        final responseBody = await response.stream.bytesToString();
-
+        print('ThankYouScreen: _updateSettings: Response code=${response.statusCode}, body=${response.body}');
         if (response.statusCode == 200) {
-          final data = jsonDecode(responseBody);
+          final data = jsonDecode(response.body);
           if (data['result'] == true) {
             await prefs.setBool('gps', data['gps'] ?? false);
             await prefs.setInt('interval', data['interval'] ?? 600);
             await prefs.setString('from', data['from'] ?? '0001-01-01T08:00:00');
             await prefs.setString('to', data['to'] ?? '0001-01-01T18:00:00');
+            print('ThankYouScreen: _updateSettings: Settings updated: gps=${data['gps']}, interval=${data['interval']}, from=${data['from']}, to=${data['to']}');
+          } else {
+            print('ThankYouScreen: _updateSettings: Server returned result: false');
           }
         }
       } catch (e) {
-        // Оставляем текущие настройки, если запрос не удался
+        print('ThankYouScreen: _updateSettings: Error: $e');
       }
     }
   }
 
   Future<void> _sendLocation() async {
+    print('ThankYouScreen: _sendLocation called');
     try {
+      print('ThankYouScreen: _sendLocation: Getting current location');
       final locationData = await _locationService.getCurrentLocation();
+      print('ThankYouScreen: _sendLocation: Current location: lat=${locationData.latitude}, lon=${locationData.longitude}');
+      print('ThankYouScreen: _sendLocation: Sending location to server');
       await _locationService.sendLocationToServer(
         locationData.latitude!,
         locationData.longitude!,
         source: 'Ручная',
       );
+      print('ThankYouScreen: _sendLocation: Location sent successfully');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -101,6 +113,7 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
         );
       }
     } catch (e) {
+      print('ThankYouScreen: _sendLocation: Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -127,6 +140,7 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
 
   @override
   void dispose() {
+    print('ThankYouScreen: dispose called');
     _locationService.stopLocationTracking();
     _locationService.dispose();
     super.dispose();
@@ -141,8 +155,8 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
           Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Text(
+              children: [
+                const Text(
                   'Спасибо!',
                   style: TextStyle(
                     color: Colors.white,
@@ -151,8 +165,8 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
                     fontFamily: 'Montserrat',
                   ),
                 ),
-                SizedBox(height: 10),
-                Text(
+                const SizedBox(height: 10),
+                const Text(
                   'Работа началась.',
                   style: TextStyle(
                     color: Colors.white70,
@@ -160,13 +174,41 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
                     fontFamily: 'Montserrat',
                   ),
                 ),
-                SizedBox(height: 10),
-                Text(
+                const SizedBox(height: 10),
+                const Text(
                   'Удачи!',
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: 24,
                     fontFamily: 'Montserrat',
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () {
+                    print('ThankYouScreen: Navigating to TrackerScreen');
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const TrackerScreen()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEB1555),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: 15,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  child: const Text(
+                    'Посмотреть логи',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontFamily: 'Montserrat',
+                    ),
                   ),
                 ),
               ],
