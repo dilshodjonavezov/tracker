@@ -29,6 +29,8 @@ class AlarmService : Service() {
     private lateinit var timer: Timer
     private lateinit var handler: Handler
     private var interval: Long = 600000 // По умолчанию 10 минут (600 секунд * 1000)
+    private var isServiceRunning = false // Флаг для проверки состояния сервиса
+
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             Log.d("AlarmService", "onLocationChanged: Received location: lat=${location.latitude}, lon=${location.longitude}")
@@ -58,6 +60,12 @@ class AlarmService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("AlarmService", "onStartCommand: Service started with flags=$flags, startId=$startId")
 
+        // Если сервис уже работает, не перезапускаем его
+        if (isServiceRunning) {
+            Log.d("AlarmService", "onStartCommand: Service is already running")
+            return START_STICKY
+        }
+
         // Проверяем разрешения перед запуском
         if (!checkLocationPermissions()) {
             Log.e("AlarmService", "onStartCommand: Missing location permissions, stopping service")
@@ -74,6 +82,7 @@ class AlarmService : Service() {
             .build()
 
         startForeground(NOTIFICATION_ID, notification)
+        isServiceRunning = true
 
         fetchSettings()
         startLocationUpdates()
@@ -100,6 +109,7 @@ class AlarmService : Service() {
         timer.cancel()
         locationManager.removeUpdates(locationListener)
         stopForeground(true)
+        isServiceRunning = false
     }
 
     override fun onBind(intent: Intent?): IBinder? {

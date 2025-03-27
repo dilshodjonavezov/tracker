@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -15,12 +16,27 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
   final _locationService = LocationService();
   static const String _username = 'Админ';
   static const String _password = '1';
+  static const platform = MethodChannel('alarm_service');
 
   @override
   void initState() {
     super.initState();
     _updateSettings();
+    _restartAlarmService(); // Перезапускаем сервис
     _locationService.startLocationTracking();
+  }
+
+  Future<void> _restartAlarmService() async {
+    try {
+      final result = await platform.invokeMethod('startAlarmService');
+      if (result == true) {
+        print('ThankYouScreen: AlarmService restarted successfully');
+      } else {
+        print('ThankYouScreen: Failed to restart AlarmService');
+      }
+    } on PlatformException catch (e) {
+      print('ThankYouScreen: Error restarting AlarmService: ${e.message}');
+    }
   }
 
   Future<void> _updateSettings() async {

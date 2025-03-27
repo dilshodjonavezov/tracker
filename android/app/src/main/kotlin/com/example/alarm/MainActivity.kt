@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
         flutterEngine?.plugins?.add(plugin)
 
         requestLocationPermissions()
+        LocationWorker.schedule(this) // Запускаем WorkManager
     }
 
     private fun requestLocationPermissions() {
