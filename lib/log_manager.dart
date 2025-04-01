@@ -62,7 +62,23 @@ class LocationService {
     final connectivityResult = await Connectivity().checkConnectivity();
     final isConnected = connectivityResult != ConnectivityResult.none;
     print('LocationService: Internet available=$isConnected, connectivityResult=$connectivityResult');
-    return isConnected;
+    if (!isConnected) {
+      return false;
+    }
+
+    try {
+      print('LocationService: Checking server availability by pinging http://192.168.1.10:8080');
+      final response = await http.get(Uri.parse('http://192.168.1.10:8080')).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw Exception('Server ping timeout'),
+      );
+      final serverAvailable = response.statusCode == 200;
+      print('LocationService: Server available=$serverAvailable, statusCode=${response.statusCode}');
+      return serverAvailable;
+    } catch (e) {
+      print('LocationService: Server not available: $e');
+      return false;
+    }
   }
 
   Future<bool> _canSendLocation() async {
@@ -98,6 +114,11 @@ class LocationService {
   Future<void> _savePendingData(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
     List<String> pendingData = prefs.getStringList('pending_locations') ?? [];
+    const maxQueueSize = 1000; // Максимальный размер очереди
+    if (pendingData.length >= maxQueueSize) {
+      pendingData.removeAt(0); // Удаляем самую старую запись
+      print('LocationService: _savePendingData: Queue limit reached, removed oldest entry');
+    }
     pendingData.add(jsonEncode(data));
     await prefs.setStringList('pending_locations', pendingData);
     print('LocationService: _savePendingData: Saved pending data: $data');
@@ -123,20 +144,25 @@ class LocationService {
       return;
     }
 
-    String basicAuth = 'Basic ${base64Encode(utf8.encode('$_username:$_password'))}';
+    // Преобразуем все записи в список Map
+    List<Map<String, dynamic>> dataList = pendingData.map((dataString) => jsonDecode(dataString) as Map<String, dynamic>).toList();
+    print('LocationService: _checkAndSendPendingData: Prepared data list: $dataList');
 
-    for (var dataString in pendingData.toList()) {
-      final data = jsonDecode(dataString);
-      print('LocationService: _checkAndSendPendingData: Processing pending data: $data');
+    String basicAuth = 'Basic ${base64Encode(utf8.encode('$_username:$_password'))}';
+    int retryCount = 0;
+    const maxRetries = 3;
+    bool success = false;
+
+    while (retryCount < maxRetries && !success) {
       try {
-        print('LocationService: _checkAndSendPendingData: Sending POST request to http://192.168.1.10:8080/MR_v1/hs/data/coordinates');
+        print('LocationService: _checkAndSendPendingData: Attempt ${retryCount + 1}/$maxRetries: Sending POST request to http://192.168.1.10:8080/MR_v1/hs/data/coordinates');
         final response = await http.post(
           Uri.parse('http://192.168.1.10:8080/MR_v1/hs/data/coordinates'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': basicAuth,
           },
-          body: jsonEncode(data),
+          body: jsonEncode(dataList), // Отправляем массив данных
         ).timeout(
           const Duration(seconds: 10),
           onTimeout: () => throw Exception('Превышено время ожидания ответа от сервера'),
@@ -144,18 +170,33 @@ class LocationService {
 
         print('LocationService: _checkAndSendPendingData: Response code=${response.statusCode}, body=${response.body}');
         if (response.statusCode == 200) {
-          pendingData.remove(dataString);
-          await prefs.setStringList('pending_locations', pendingData);
-          print('LocationService: _checkAndSendPendingData: Successfully sent and removed pending data: $data');
-          _logController.add('Отправлено из очереди: ${data['latitude']}, ${data['longitude']}, time=${DateTime.now()}');
+          // Если сервер успешно принял данные, очищаем очередь
+          await prefs.setStringList('pending_locations', []);
+          print('LocationService: _checkAndSendPendingData: Successfully sent all pending data: $dataList');
+          for (var data in dataList) {
+            _logController.add('Отправлено из очереди: ${data['latitude']}, ${data['longitude']}, time=${DateTime.now()}');
+          }
+          success = true;
         } else {
           print('LocationService: _checkAndSendPendingData: Failed to send pending data: status=${response.statusCode}, body=${response.body}');
-          break;
+          retryCount++;
+          if (retryCount < maxRetries) {
+            print('LocationService: _checkAndSendPendingData: Retrying in 5 seconds...');
+            await Future.delayed(const Duration(seconds: 5));
+          }
         }
       } catch (e) {
         print('LocationService: _checkAndSendPendingData: Error sending pending data: $e');
-        break;
+        retryCount++;
+        if (retryCount < maxRetries) {
+          print('LocationService: _checkAndSendPendingData: Retrying in 5 seconds...');
+          await Future.delayed(const Duration(seconds: 5));
+        }
       }
+    }
+
+    if (!success) {
+      print('LocationService: _checkAndSendPendingData: Max retries reached, keeping data in queue');
     }
   }
 
@@ -183,46 +224,21 @@ class LocationService {
     };
     print('LocationService: sendLocationToServer: Prepared data: $data');
 
-    try {
-      if (!await _isInternetAvailable()) {
-        print('LocationService: sendLocationToServer: No internet, saving to pending');
-        await _savePendingData(data);
-        return;
-      }
+    // Добавляем новые данные в очередь
+    await _savePendingData(data);
 
-      String basicAuth = 'Basic ${base64Encode(utf8.encode('$_username:$_password'))}';
-      print('LocationService: sendLocationToServer: Sending POST request to http://192.168.1.10:8080/MR_v1/hs/data/coordinates');
-      final response = await http.post(
-        Uri.parse('http://192.168.1.10:8080/MR_v1/hs/data/coordinates'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': basicAuth,
-        },
-        body: jsonEncode(data),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw Exception('Превышено время ожидания ответа от сервера'),
-      );
+    // Проверяем и отправляем все данные из очереди
+    await _checkAndSendPendingData();
 
-      print('LocationService: sendLocationToServer: Response code=${response.statusCode}, body=${response.body}');
-      if (response.statusCode != 200) {
-        throw Exception('Failed to send location: ${response.statusCode} - ${response.body}');
-      }
-
-      print('LocationService: sendLocationToServer: Successfully sent location to server');
-      _logController.add('$source отправка: lat=$latitude, lon=$longitude, time=$now');
-      await _checkAndSendPendingData();
-    } catch (e) {
-      print('LocationService: sendLocationToServer: Error sending location: $e');
-      await _savePendingData(data);
-    }
+    // Логируем отправку текущих данных
+    _logController.add('$source отправка: lat=$latitude, lon=$longitude, time=$now');
   }
 
   void startLocationTracking() {
     print('LocationService: startLocationTracking called');
     _timer?.cancel();
     SharedPreferences.getInstance().then((prefs) {
-      final interval = prefs.getInt('interval') ?? 600;
+      final interval = (prefs.getInt('interval') ?? 600).clamp(30, 3600);
       print('LocationService: startLocationTracking: Starting timer with interval=$interval seconds');
       _timer = Timer.periodic(Duration(seconds: interval), (timer) async {
         try {

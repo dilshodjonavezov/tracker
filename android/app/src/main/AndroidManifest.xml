@@ -10,12 +10,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" /> <!-- Для запуска активностей из фона -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- Для пробуждения устройства при запуске -->
 
     <application
         android:label="Tracker"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"> <!-- Добавляем эту строку -->
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -28,8 +30,8 @@
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
@@ -40,6 +42,17 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
+        <!-- Сервис для мониторинга состояния приложения -->
+        <service
+            android:name=".AppMonitorService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="AppMonitor" />
+        </service>
+
         <!-- Ресивер для BOOT_COMPLETED -->
         <receiver
             android:name=".BootReceiver"
@@ -47,6 +60,16 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Ресивер для перезапуска приложения -->
+        <receiver
+            android:name=".AppRestartReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.alarm.APP_RESTART" />
             </intent-filter>
         </receiver>
 

@@ -13,19 +13,47 @@ class ThankYouScreen extends StatefulWidget {
   State<ThankYouScreen> createState() => _ThankYouScreenState();
 }
 
-class _ThankYouScreenState extends State<ThankYouScreen> {
+class _ThankYouScreenState extends State<ThankYouScreen> with WidgetsBindingObserver {
   final _locationService = LocationService();
   static const String _username = 'Админ';
   static const String _password = '1';
   static const platform = MethodChannel('alarm_service');
+  bool _isFirstBuild = true; // Флаг для отслеживания первого входа
 
   @override
   void initState() {
     super.initState();
     print('ThankYouScreen: initState called');
+    WidgetsBinding.instance.addObserver(this); // Добавляем наблюдатель за жизненным циклом
     _updateSettings();
     _restartAlarmService();
     _locationService.startLocationTracking();
+    // Вызываем _sendLocation при первом входе
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sendLocation();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Вызываем _sendLocation при возвращении на страницу после навигации
+    if (!_isFirstBuild) {
+      print('ThankYouScreen: didChangeDependencies called, sending location');
+      _sendLocation();
+    }
+    _isFirstBuild = false;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    print('ThankYouScreen: AppLifecycleState changed to $state');
+    // Вызываем _sendLocation, когда приложение возвращается из свернутого состояния
+    if (state == AppLifecycleState.resumed) {
+      print('ThankYouScreen: App resumed, sending location');
+      _sendLocation();
+    }
   }
 
   Future<void> _restartAlarmService() async {
@@ -141,6 +169,7 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
   @override
   void dispose() {
     print('ThankYouScreen: dispose called');
+    WidgetsBinding.instance.removeObserver(this); // Удаляем наблюдатель
     _locationService.stopLocationTracking();
     _locationService.dispose();
     super.dispose();
@@ -218,7 +247,7 @@ class _ThankYouScreenState extends State<ThankYouScreen> {
             bottom: 30,
             right: 30,
             child: FloatingActionButton(
-              onPressed: _sendLocation,
+              onPressed: _sendLocation, // Пользователь всё ещё может нажать вручную
               backgroundColor: const Color(0xFFEB1555),
               child: const Icon(
                 Icons.location_on,

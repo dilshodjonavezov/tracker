@@ -7,7 +7,10 @@ import io.flutter.plugin.common.MethodChannel
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -17,6 +20,7 @@ class MainActivity : FlutterActivity() {
         var channel: MethodChannel? = null
         private const val REQUEST_LOCATION_PERMISSIONS = 100
         private const val REQUEST_BACKGROUND_LOCATION = 101
+        private const val REQUEST_OVERLAY_PERMISSION = 102
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,7 +31,36 @@ class MainActivity : FlutterActivity() {
         flutterEngine?.plugins?.add(plugin)
 
         requestLocationPermissions()
+        requestOverlayPermission() // Запрашиваем разрешение SYSTEM_ALERT_WINDOW
         LocationWorker.schedule(this) // Запускаем WorkManager
+
+        // Запускаем AppMonitorService
+        startAppMonitorService()
+    }
+
+    private fun startAppMonitorService() {
+        val intent = Intent(this, AppMonitorService::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        Log.d("MainActivity", "startAppMonitorService: AppMonitorService started")
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                Log.d("MainActivity", "requestOverlayPermission: Requesting SYSTEM_ALERT_WINDOW")
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION)
+            } else {
+                Log.d("MainActivity", "requestOverlayPermission: SYSTEM_ALERT_WINDOW already granted")
+            }
+        }
     }
 
     private fun requestLocationPermissions() {
@@ -56,6 +89,19 @@ class MainActivity : FlutterActivity() {
             )
         } else {
             Log.d("MainActivity", "requestBackgroundLocationPermission: ACCESS_BACKGROUND_LOCATION already granted")
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_OVERLAY_PERMISSION) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (Settings.canDrawOverlays(this)) {
+                    Log.d("MainActivity", "onActivityResult: SYSTEM_ALERT_WINDOW granted")
+                } else {
+                    Log.e("MainActivity", "onActivityResult: SYSTEM_ALERT_WINDOW denied")
+                }
+            }
         }
     }
 
